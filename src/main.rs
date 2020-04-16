@@ -20,6 +20,10 @@ use {
         },
         num::ParseIntError,
         os::unix::process::CommandExt as _,
+        path::{
+            Path,
+            PathBuf
+        },
         process::{
             Command,
             Stdio
@@ -53,7 +57,8 @@ enum Error {
     Chrono(chrono::format::ParseError),
     Duration(time::OutOfRangeError),
     EmptyHostname,
-    Io(io::Error),
+    #[from(ignore)]
+    Io(io::Error, Option<PathBuf>),
     Json(serde_json::Error),
     Parse(Option<&'static str>),
     ParseInt(ParseIntError),
@@ -66,6 +71,37 @@ enum Error {
 impl From<()> for Error {
     fn from((): ()) -> Error {
         Error::Parse(None)
+    }
+}
+
+trait IoResultExt {
+    type T;
+
+    fn at(self, path: impl AsRef<Path>) -> Self::T;
+    fn at_unknown(self) -> Self::T;
+}
+
+impl IoResultExt for io::Error {
+    type T = Error;
+
+    fn at(self, path: impl AsRef<Path>) -> Error {
+        Error::Io(self, Some(path.as_ref().to_owned()))
+    }
+
+    fn at_unknown(self) -> Error {
+        Error::Io(self, None)
+    }
+}
+
+impl<T, E: IoResultExt> IoResultExt for Result<T, E> {
+    type T = Result<T, E::T>;
+
+    fn at(self, path: impl AsRef<Path>) -> Result<T, E::T> {
+        self.map_err(|e| e.at(path))
+    }
+
+    fn at_unknown(self) -> Result<T, E::T> {
+        self.map_err(|e| e.at_unknown())
     }
 }
 
@@ -93,7 +129,7 @@ fn get_schedule(client: &Client, event: usize) -> Result<Vec<Run>, Error> {
             .send()?
             .error_for_status()?;
         let mut response_content = String::default();
-        response.read_to_string(&mut response_content)?;
+        response.read_to_string(&mut response_content).at_unknown()?;
         kuchiki::parse_html().one(response_content)
     };
     document
@@ -139,21 +175,22 @@ fn parse_duration(duration_str: impl ToString) -> Result<Duration, Error> {
 
 fn setup_info_beamer() -> Result<(), Error> {
     write_loading_message("updating assets")?;
-    fs::copy("/opt/git/github.com/fenhl/info-beamer-text/master/text.lua", "text.lua")?;
-    fs::copy("fonts/dejavu/DejaVuSans.ttf", "dejavu_sans.ttf")?;
+    fs::copy("/opt/git/github.com/fenhl/info-beamer-text/master/text.lua", "text.lua").at("/opt/git/github.com/fenhl/info-beamer-text/master/text.lua")?;
+    fs::copy("fonts/dejavu/DejaVuSans.ttf", "dejavu_sans.ttf").at("fonts/dejavu/DejaVuSans.ttf")?;
     write_loading_message("starting info-beamer")?;
     Command::new("info-beamer")
         .arg(".")
         .env("INFOBEAMER_INFO_INTERVAL", "604800")
         .stdin(Stdio::null()) // to avoid terminating when pressing arrow keys
-        .spawn()?;
+        .spawn()
+        .at_unknown()?;
     write_loading_message("waiting to make sure socket will be available")?;
     thread::sleep(Duration::from_secs(10));
     Ok(())
 }
 
 fn write_loading_message(msg: &str) -> Result<(), Error> {
-    serde_json::to_writer(File::create("data.json")?, &json!({
+    serde_json::to_writer(File::create("data.json").at("data.json")?, &json!({
         "mode": "loading",
         "hostname": hostname()?,
         "loading": render_line(msg)
@@ -164,16 +201,16 @@ fn write_loading_message(msg: &str) -> Result<(), Error> {
 fn main_inner() -> Result<(), Error> {
     write_loading_message("setting time")?;
     {
-        let sock = UdpSocket::bind((Ipv4Addr::new(127, 0, 0, 1), 0))?; // port 0 tells the OS to assign an arbitrary port
+        let sock = UdpSocket::bind((Ipv4Addr::new(127, 0, 0, 1), 0)).at_unknown()?; // port 0 tells the OS to assign an arbitrary port
         let buf = format!("gdq/time/set:{}", Utc::now().timestamp()).into_bytes();
-        if sock.send_to(&buf, (Ipv4Addr::new(127, 0, 0, 1), 4444))? != buf.len() { return Err(Error::TimeSet); }
+        if sock.send_to(&buf, (Ipv4Addr::new(127, 0, 0, 1), 4444)).at_unknown()? != buf.len() { return Err(Error::TimeSet); }
     }
     write_loading_message("determining current event")?;
     let client = Client::new();
     let event = 27; //TODO determine automatically
     write_loading_message("loading event schedule")?;
     let mut schedule = get_schedule(&client, event)?;
-    serde_json::to_writer(File::create("data.json")?, &json!({
+    serde_json::to_writer(File::create("data.json").at("data.json")?, &json!({
         "mode": "schedule",
         "schedule": schedule
     }))?;
@@ -187,7 +224,7 @@ fn main_inner() -> Result<(), Error> {
         if new_schedule != schedule /*TODO || new_bids != bids*/ { // only write data if it changes
             schedule = new_schedule;
             //TODO bids = new_bids;
-            serde_json::to_writer(File::create("data.json")?, &json!({
+            serde_json::to_writer(File::create("data.json").at("data.json")?, &json!({
                 "mode": "schedule",
                 "schedule": schedule
                 //TODO bids
@@ -205,12 +242,13 @@ fn main() -> Result<(), Error> { //TODO Result<!, Error>
             .help("Exit info-beamer after the event has ended.")
         )
         .get_matches();
-    env::set_current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).canonicalize()?.join("assets"))?;
+    let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).canonicalize().at(std::path::Path::new(env!("CARGO_MANIFEST_DIR")))?.join("assets");
+    env::set_current_dir(&assets).at(assets)?;
     setup_info_beamer()?;
     main_inner()?;
     if !matches.is_present("exit") {
         loop { thread::park(); }
     } else {
-        Err(Command::new("sudo").arg("--non-interactive").arg("killall").arg("info-beamer").exec().into()) //TODO get pid instead?
+        Err(Command::new("sudo").arg("--non-interactive").arg("killall").arg("info-beamer").exec().at_unknown()) //TODO get pid instead?
     }
 }
