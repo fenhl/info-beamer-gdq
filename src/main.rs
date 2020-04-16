@@ -123,11 +123,13 @@ impl Run {
     }
 }
 
-fn get_schedule(client: &Client, event: usize) -> Result<Vec<Run>, Error> {
+fn get_schedule(client: &Client, event: Option<usize>) -> Result<Vec<Run>, Error> {
     let document = {
-        let mut response = client.get(&format!("https://gamesdonequick.com/schedule/{}", event))
-            .send()?
-            .error_for_status()?;
+        let mut response = client.get(&if let Some(event) = event {
+            format!("https://gamesdonequick.com/schedule/{}", event)
+        } else {
+            format!("https://gamesdonequick.com/schedule")
+        }).send()?.error_for_status()?;
         let mut response_content = String::default();
         response.read_to_string(&mut response_content).at_unknown()?;
         kuchiki::parse_html().one(response_content)
@@ -198,7 +200,7 @@ fn write_loading_message(msg: &str) -> Result<(), Error> {
     Ok(())
 }
 
-fn main_inner() -> Result<(), Error> {
+fn main_inner(event: Option<usize>) -> Result<(), Error> {
     write_loading_message("setting time")?;
     {
         let sock = UdpSocket::bind((Ipv4Addr::new(127, 0, 0, 1), 0)).at_unknown()?; // port 0 tells the OS to assign an arbitrary port
@@ -207,7 +209,6 @@ fn main_inner() -> Result<(), Error> {
     }
     write_loading_message("determining current event")?;
     let client = Client::new();
-    let event = 27; //TODO determine automatically
     write_loading_message("loading event schedule")?;
     let mut schedule = get_schedule(&client, event)?;
     serde_json::to_writer(File::create("data.json").at("data.json")?, &json!({
@@ -241,14 +242,15 @@ fn main() -> Result<(), Error> { //TODO Result<!, Error>
             .long("exit")
             .help("Exit info-beamer after the event has ended.")
         )
+        .arg(Arg::with_name("event"))
         .get_matches();
     let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).canonicalize().at(std::path::Path::new(env!("CARGO_MANIFEST_DIR")))?.join("assets");
     env::set_current_dir(&assets).at(assets)?;
     setup_info_beamer()?;
-    main_inner()?;
-    if !matches.is_present("exit") {
-        loop { thread::park(); }
-    } else {
+    main_inner(if let Some(event) = matches.value_of("event") { Some(event.parse()?) } else { None })?;
+    if matches.is_present("exit") {
         Err(Command::new("sudo").arg("--non-interactive").arg("killall").arg("info-beamer").exec().at_unknown()) //TODO get pid instead?
+    } else {
+        loop { thread::park(); }
     }
 }
