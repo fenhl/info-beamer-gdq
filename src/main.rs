@@ -146,7 +146,7 @@ fn get_schedule(client: &Client, event: Option<usize>) -> Result<Vec<Run>, Error
         .map(|(top_row, bottom_row)| {
             let (start_time, game, runners, setup_time) = top_row.children().filter_map(NodeRef::into_element_ref).map(|elt_ref| elt_ref.text_contents().trim().to_string()).collect_tuple().ok_or(Error::ParseTopRow(top_row.children().count()))?;
             let (run_time, category_platform, host) = bottom_row.children().filter_map(NodeRef::into_element_ref).map(|elt_ref| elt_ref.text_contents().trim().to_string()).collect_tuple().ok_or(Error::Parse(Some("bottom row")))?;
-            let (category, platform) = category_platform.splitn(2, " — ").map(String::from).collect_tuple().ok_or(Error::Parse(Some("category/platform")))?;
+            let (category, platform) = category_platform.splitn(2, '—').map(|part| part.trim().to_string()).collect_tuple().ok_or(Error::Parse(Some("category/platform")))?;
             Ok(Run {
                 game: Ib(game),
                 category: Ib(category),
