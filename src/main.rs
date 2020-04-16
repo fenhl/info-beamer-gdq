@@ -19,11 +19,12 @@ use {
             UdpSocket
         },
         num::ParseIntError,
+        os::unix::process::CommandExt as _,
         process::{
             Command,
             Stdio
         },
-        str::FromStr,
+        str::FromStr as _,
         thread,
         time::Duration
     },
@@ -36,6 +37,7 @@ use {
         NodeRef,
         traits::TendrilSink as _
     },
+    reqwest::blocking::Client,
     serde_derive::Serialize,
     serde_json::json,
     crate::ib::{
@@ -85,7 +87,7 @@ impl Run {
     }
 }
 
-fn get_schedule(client: &reqwest::Client, event: usize) -> Result<Vec<Run>, Error> {
+fn get_schedule(client: &Client, event: usize) -> Result<Vec<Run>, Error> {
     let document = {
         let mut response = client.get(&format!("https://gamesdonequick.com/schedule/{}", event))
             .send()?
@@ -167,7 +169,7 @@ fn main_inner() -> Result<(), Error> {
         if sock.send_to(&buf, (Ipv4Addr::new(127, 0, 0, 1), 4444))? != buf.len() { return Err(Error::TimeSet); }
     }
     write_loading_message("determining current event")?;
-    let client = reqwest::Client::new();
+    let client = Client::new();
     let event = 27; //TODO determine automatically
     write_loading_message("loading event schedule")?;
     let mut schedule = get_schedule(&client, event)?;
@@ -209,6 +211,6 @@ fn main() -> Result<(), Error> { //TODO Result<!, Error>
     if !matches.is_present("exit") {
         loop { thread::park(); }
     } else {
-        Err(Command::new("sudo").arg("--non-interactive").arg("killall").arg("info-beamer").exec()) //TODO get pid instead?
+        Err(Command::new("sudo").arg("--non-interactive").arg("killall").arg("info-beamer").exec().into()) //TODO get pid instead?
     }
 }
