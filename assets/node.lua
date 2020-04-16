@@ -102,7 +102,7 @@ function node.render()
         local y = 0
         if now() < schedule[1].start_time then
             local dimensions = write{text={countdown(schedule[1].start_time)}, halign="left", valign="top", min_y=y}
-            local next_y = y + dimensions.height
+            y = y + dimensions.height
         end
         for i = 1, #schedule do
             if schedule[i].start_time + schedule[i].run_time + schedule[i].setup_time > now() then
