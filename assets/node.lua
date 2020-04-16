@@ -25,6 +25,52 @@ local loading = nil
 local mode = nil
 local schedule = nil
 
+function countdown(target_time)
+    -- determine remaining duration
+    local delta = target_time - now()
+    -- format
+    local past = false
+    if delta < 0 then
+        delta = -delta
+        past = true
+    end
+    local result = {}
+    local delta_minutes = delta / 60
+    local delta_seconds = delta % 60
+    local delta_hours = delta_minutes / 60
+    delta_minutes = delta_minutes % 60
+    local delta_days = delta_hours / 24
+    delta_hours = delta_hours % 24
+    if delta_days >= 1 then
+        result = {
+            string.format("%dd", delta_days),
+            string.format("%02dh", delta_hours),
+            string.format("%02dm", delta_minutes),
+            string.format("%02ds", delta_seconds)
+        }
+    elseif delta_hours >= 1 then
+        result = {
+            string.format("%dh", delta_hours),
+            string.format("%02dm", delta_minutes),
+            string.format("%02ds", delta_seconds)
+        }
+    elseif delta_minutes >= 1 then
+        result = {
+            string.format("%dm", delta_minutes),
+            string.format("%02ds", delta_seconds)
+        }
+    else
+        result = {
+            string.format("%ds", delta_seconds)
+        }
+    end
+    if past then
+        return concat{result, {"ago"}}
+    else
+        return result
+    end
+end
+
 function is_null(value)
     return value == nil or value == json.null
 end
@@ -54,6 +100,10 @@ function node.render()
     elseif mode == "schedule" then
         gl.clear(1, 1, 1, 1)
         local y = 0
+        if now() < schedule[1].start_time then
+            local dimensions = write{text={countdown(schedule[1].start_time)}, halign="left", valign="top", min_y=y}
+            local next_y = y + dimensions.height
+        end
         for i = 1, #schedule do
             if schedule[i].start_time + schedule[i].run_time + schedule[i].setup_time > now() then
                 local dimensions = write{text=schedule[i].game, halign="left", valign="top", min_y=y, simulate=true}
