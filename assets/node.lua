@@ -105,11 +105,11 @@ function node.render()
             y = y + dimensions.height
         end
         for i = 1, #schedule do
-            if schedule[i].start_time + schedule[i].run_time + schedule[i].setup_time > now() then
+            if schedule[i].start_time + schedule[i].setup_time + schedule[i].run_time > now() then
                 local dimensions = write{text=schedule[i].game, halign="left", valign="top", min_y=y, simulate=true}
                 local next_y = y + dimensions.height
-                if now() > schedule[i].start_time then
-                    resource.create_colored_texture(0, 1, 0, 1):draw(0, y, WIDTH * (now() - schedule[i].start_time) / schedule[i].run_time, next_y)
+                if now() > schedule[i].start_time + schedule[i].setup_time then
+                    resource.create_colored_texture(0, 1, 0, 1):draw(0, y, WIDTH * (now() - (schedule[i].start_time + schedule[i].setup_time)) / schedule[i].run_time, next_y)
                 end
                 write{text=schedule[i].game, halign="left", valign="top", min_y=y}
                 y = next_y
